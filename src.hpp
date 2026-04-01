@@ -140,16 +140,12 @@ class vector {
       reallocate(newcap);
     }
     size_type i = size_;
-    if constexpr (std::is_trivially_copyable_v<T>) {
-      for (; i < n; ++i) *(data_ + i) = value;
-    } else {
-      try {
-        for (; i < n; ++i) new (data_ + i) T(value);
-      } catch (...) {
-        // roll back constructs
-        for (size_type j = size_; j < i; ++j) data_[j].~T();
-        throw;
-      }
+    try {
+      for (; i < n; ++i) new (data_ + i) T(value);
+    } catch (...) {
+      // roll back constructs
+      for (size_type j = size_; j < i; ++j) data_[j].~T();
+      throw;
     }
     size_ = n;
   }
@@ -221,7 +217,7 @@ class vector {
     }
     size_type i = 0;
     try {
-      for (; i < size_; ++i) new (newdata + i) T(std::move_if_noexcept(data_[i]));
+      for (; i < size_; ++i) new (newdata + i) T(std::move(data_[i]));
     } catch (...) {
       for (size_type j = 0; j < i; ++j) newdata[j].~T();
       alloc_.deallocate(newdata, newcap);
