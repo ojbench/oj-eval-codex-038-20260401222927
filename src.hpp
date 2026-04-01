@@ -3,6 +3,7 @@
 #include <memory>
 #include <utility>
 #include <stdexcept>
+#include <type_traits>
 
 namespace sjtu {
 
@@ -125,7 +126,11 @@ class vector {
 
   void resize(size_type n, const T &value) {
     if (n < size_) {
-      for (size_type i = n; i < size_; ++i) data_[i].~T();
+      if constexpr (std::is_trivially_destructible_v<T>) {
+        // no-op
+      } else {
+        for (size_type i = n; i < size_; ++i) data_[i].~T();
+      }
       size_ = n;
       return;
     }
@@ -135,19 +140,27 @@ class vector {
       reallocate(newcap);
     }
     size_type i = size_;
-    try {
-      for (; i < n; ++i) new (data_ + i) T(value);
-    } catch (...) {
-      // roll back constructs
-      for (size_type j = size_; j < i; ++j) data_[j].~T();
-      throw;
+    if constexpr (std::is_trivially_copyable_v<T>) {
+      for (; i < n; ++i) *(data_ + i) = value;
+    } else {
+      try {
+        for (; i < n; ++i) new (data_ + i) T(value);
+      } catch (...) {
+        // roll back constructs
+        for (size_type j = size_; j < i; ++j) data_[j].~T();
+        throw;
+      }
     }
     size_ = n;
   }
 
   // modifiers
   void clear() noexcept {
-    for (size_type i = 0; i < size_; ++i) data_[i].~T();
+    if constexpr (std::is_trivially_destructible_v<T>) {
+      // skip loop
+    } else {
+      for (size_type i = 0; i < size_; ++i) data_[i].~T();
+    }
     size_ = 0;
   }
 
@@ -174,7 +187,7 @@ class vector {
   void pop_back() {
     if (size_ == 0) return;
     --size_;
-    data_[size_].~T();
+    if constexpr (!std::is_trivially_destructible_v<T>) data_[size_].~T();
   }
 
   void swap(vector &other) noexcept {
@@ -199,6 +212,13 @@ class vector {
 
   void reallocate(size_type newcap) {
     T *newdata = alloc_.allocate(newcap);
+    if constexpr (std::is_trivially_copyable_v<T>) {
+      if (data_) std::memcpy(newdata, data_, size_ * sizeof(T));
+      if (data_) alloc_.deallocate(data_, cap_);
+      data_ = newdata;
+      cap_ = newcap;
+      return;
+    }
     size_type i = 0;
     try {
       for (; i < size_; ++i) new (newdata + i) T(std::move_if_noexcept(data_[i]));
@@ -214,11 +234,14 @@ class vector {
   }
 
   void destroy_and_dealloc() noexcept {
-    for (size_type i = 0; i < size_; ++i) data_[i].~T();
+    if constexpr (std::is_trivially_destructible_v<T>) {
+      // skip loop
+    } else {
+      for (size_type i = 0; i < size_; ++i) data_[i].~T();
+    }
     if (data_) alloc_.deallocate(data_, cap_);
     data_ = nullptr; size_ = cap_ = 0;
   }
 };
 
 }  // namespace sjtu
-
